@@ -81,5 +81,8 @@ class Actor(nn.Module):
     
     def get_action(self, state):
         state  = torch.FloatTensor(state).unsqueeze(0).to(device)
-        action = self.forward(state)
+        self.eval()
+        with torch.no_grad():
+            action = self.forward(state)
+        self.train()
         return action.detach().cpu().numpy()[0]

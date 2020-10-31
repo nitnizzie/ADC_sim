@@ -9,13 +9,11 @@ https://arxiv.org/pdf/1509.02971.pdf
 
 import random
 import numpy as np
-from copy import copy, deepcopy
 from collections import deque
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import torch.nn.functional as F
 
 from model import Critic, Actor
 
@@ -30,20 +28,7 @@ LR_CRITIC = 0.001   #LEARNING RATE CRITIC
 H1 = 400    #neurons of 1st layers
 H2 = 300    #neurons of 2nd layers
 
-MAX_EPISODES=1000   #number of episodes of the training
-MAX_STEPS=200   #max steps to finish an episode. An episode breaks early if some break conditions are met (like too much
-                #amplitude of the joints angles or if a failure occurs). In the case of pendulum there is no break
-                #condition, hence no environment reset,  so we just put 1 step per episode. 
 buffer_start = 100  #initial warmup without training
-epsilon = 1
-epsilon_decay = 1./100000 #this is ok for a simple task like inverted pendulum, but maybe this would be set to zero for more
-                    #complex tasks like Hopper; epsilon is a decay for the exploration and noise applied to the action is 
-                    #weighted by this decay. In more complex tasks we need the exploration to not vanish so we set the decay
-                    #to zero.
-PRINT_EVERY = 10    #Print info about average reward every PRINT_EVERY
-
-#set GPU for faster training
-device   = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class replayBuffer(object):
@@ -52,8 +37,8 @@ class replayBuffer(object):
         self.num_exp = 0
         self.buffer=deque()
 
-    def add(self, s, a, r, t, s2):
-        experience=(s, a, r, t, s2)
+    def add(self, state, action, reward, terminal, next_state):
+        experience=(state, action, reward, terminal, next_state)
         if self.num_exp < self.buffer_size:
             self.buffer.append(experience)
             self.num_exp +=1
@@ -73,9 +58,9 @@ class replayBuffer(object):
         else:
             batch=random.sample(self.buffer, batch_size)
 
-        s, a, r, t, s2 = map(np.stack, zip(*batch))
+        state, action, reward, terminal, next_state = map(np.stack, zip(*batch))
 
-        return s, a, r, t, s2
+        return state, action, reward, terminal, next_state
 
     def clear(self):
         self.buffer = deque()
@@ -103,25 +88,89 @@ class OU_Noise:
     def __repr__(self):
         return 'OU_NOISE(mu={}, sigma={})'.format(self.mu, self.sigma)
 
-class Agent():
-    def __init__(self, state_dim = 3, action_dim = 1):
-        self.noise = OU_Noise(mu=np.zeros(action_dim))
 
+class Agent():
+    def __init__(self, state_dim = 5, action_dim = 1, device = 'cpu'):
+
+        #Randomly Initialize Critic & Actor Network.
         self.critic  = Critic(state_dim, action_dim, H1, H2).to(device)
         self.actor = Actor(state_dim, action_dim, H1, H2).to(device)
 
         self.target_critic  = Critic(state_dim, action_dim, H1, H2).to(device)
         self.target_actor = Actor(state_dim, action_dim, H1, H2).to(device)
 
-for target_param, param in zip(target_critic.parameters(), critic.parameters()):
-    target_param.data.copy_(param.data)
+        #Initialize Target Neworks with weights.
+        for target_param, param in zip(target_critic.parameters(), critic.parameters()):
+            target_param.data.copy_(param.data)
 
-for target_param, param in zip(target_actor.parameters(), actor.parameters()):
-    target_param.data.copy_(param.data)
+        for target_param, param in zip(target_actor.parameters(), actor.parameters()):
+            target_param.data.copy_(param.data)
+
+        self.q_optimizer  = optim.Adam(critic.parameters(),  lr=LR_CRITIC)#, weight_decay=0.01)
+        self.policy_optimizer = optim.Adam(actor.parameters(), lr=LR_ACTOR)
+        self.loss = nn.MSELoss()
+
+        #Initialize ReplayBuffer R
+        self.memory = replayBuffer(BUFFER_SIZE)
+
+        #Initialize random process N.
+        self.noise = OU_Noise(mu=np.zeros(action_dim))
+
+    def reset(self):
+        self.noise.reset()
+
+    def get_action(self, state, add_noise=True):
+        """Returns actions for given state as per current policy."""
+        action = self.actor.get_action(state)
+        if add_noise:
+            action += self.noise()
+        return np.clip(action, -1., 1.)
     
-q_optimizer  = optim.Adam(critic.parameters(),  lr=LR_CRITIC)#, weight_decay=0.01)
-policy_optimizer = optim.Adam(actor.parameters(), lr=LR_ACTOR)
+    def store_to_memory(self, state, action, reward, terminal, next_state):
+        self.memory.add(state, action, reward, terminal, next_state)
 
-MSE = nn.MSELoss()
+    def train(self, device):
+        #keep adding experiences to the memory until there are at least minibatch size samples
+        if memory.count() <= buffer_start:
+            return
+    
+        #Sample a Random-minibatch of N transitions from R
+        s_batch, a_batch, r_batch, t_batch, s2_batch = memory.sample(BATCH_SIZE)
 
-memory = replayBuffer(BUFFER_SIZE)
+        s_batch = torch.FloatTensor(s_batch).to(device)
+        a_batch = torch.FloatTensor(a_batch).to(device)
+        r_batch = torch.FloatTensor(r_batch).unsqueeze(1).to(device)
+        t_batch = torch.FloatTensor(np.float32(t_batch)).unsqueeze(1).to(device)
+        s2_batch = torch.FloatTensor(s2_batch).to(device)
+
+        #compute loss for critic
+        a2_batch = self.target_actor(s2_batch)
+        target_q = self.target_critic(s2_batch, a2_batch) #detach to avoid updating target
+        y = r_batch + (1.0 - t_batch) * GAMMA * target_q.detach()
+        q = self.critic(s_batch, a_batch)
+
+        #update critic
+        self.q_optimizer.zero_grad()
+        q_loss = self.loss(q, y) #detach to avoid updating target
+        q_loss.backward()
+        self.q_optimizer.step()
+
+        #compute loss for actor & update actor
+        self.policy_optimizer.zero_grad()
+        policy_loss = -self.critic(s_batch, self.actor(s_batch)).mean()
+        policy_loss.backward()
+        self.policy_optimizer.step()
+    
+        #update target networks
+        self.soft_update()
+
+    def soft_update(self):
+        for target_param, param in zip(self.target_critic.parameters(), self.critic.parameters()):
+            target_param.data.copy_(
+                target_param.data * (1.0 - TAU) + param.data * TAU
+            )
+
+        for target_param, param in zip(self.target_actor.parameters(), self.actor.parameters()):
+            target_param.data.copy_(
+                target_param.data * (1.0 - TAU) + param.data * TAU
+            )

@@ -47,7 +47,7 @@ state = cur_obs[6:11]
 action_angle = 0
 action_torque = [150, 150]
 
-agents = Agent(state_dim=3, action_dim=1, device=device)
+agents = Agent(state_dim=5, action_dim=1, device=device)
 
 best_reward = -np.inf
 saved_reward = -np.inf

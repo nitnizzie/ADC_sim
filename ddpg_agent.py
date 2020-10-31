@@ -100,14 +100,14 @@ class Agent():
         self.target_actor = Actor(state_dim, action_dim, H1, H2).to(device)
 
         #Initialize Target Neworks with weights.
-        for target_param, param in zip(target_critic.parameters(), critic.parameters()):
+        for target_param, param in zip(self.target_critic.parameters(), self.critic.parameters()):
             target_param.data.copy_(param.data)
 
-        for target_param, param in zip(target_actor.parameters(), actor.parameters()):
+        for target_param, param in zip(self.target_actor.parameters(), self.actor.parameters()):
             target_param.data.copy_(param.data)
 
-        self.q_optimizer  = optim.Adam(critic.parameters(),  lr=LR_CRITIC)#, weight_decay=0.01)
-        self.policy_optimizer = optim.Adam(actor.parameters(), lr=LR_ACTOR)
+        self.q_optimizer  = optim.Adam(self.critic.parameters(),  lr=LR_CRITIC)#, weight_decay=0.01)
+        self.policy_optimizer = optim.Adam(self.actor.parameters(), lr=LR_ACTOR)
         self.loss = nn.MSELoss()
 
         #Initialize ReplayBuffer R
@@ -131,11 +131,11 @@ class Agent():
 
     def train(self, device):
         #keep adding experiences to the memory until there are at least minibatch size samples
-        if memory.count() <= buffer_start:
+        if self.memory.count() <= buffer_start:
             return
     
         #Sample a Random-minibatch of N transitions from R
-        s_batch, a_batch, r_batch, t_batch, s2_batch = memory.sample(BATCH_SIZE)
+        s_batch, a_batch, r_batch, t_batch, s2_batch = self.memory.sample(BATCH_SIZE)
 
         s_batch = torch.FloatTensor(s_batch).to(device)
         a_batch = torch.FloatTensor(a_batch).to(device)

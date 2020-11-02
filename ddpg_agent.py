@@ -137,14 +137,14 @@ class Agent():
         #Sample a Random-minibatch of N transitions from R
         s_batch, a_batch, r_batch, t_batch, s2_batch = self.memory.sample(BATCH_SIZE)
 
-        s_batch = torch.FloatTensor(s_batch).to(device)
-        a_batch = torch.FloatTensor(a_batch).to(device)
+        s_batch = torch.FloatTensor(s_batch).to(device) #(batch_dim, state_dim)
+        a_batch = torch.FloatTensor(a_batch).to(device) #(batch_dim, action_dim)
         r_batch = torch.FloatTensor(r_batch).unsqueeze(1).to(device)
         t_batch = torch.FloatTensor(np.float32(t_batch)).unsqueeze(1).to(device)
         s2_batch = torch.FloatTensor(s2_batch).to(device)
 
         #compute loss for critic
-        a2_batch = self.target_actor(s2_batch)
+        a2_batch = self.target_actor(s2_batch)  #(batch_dim, action_dim)
         target_q = self.target_critic(s2_batch, a2_batch) #detach to avoid updating target
         y = r_batch + (1.0 - t_batch) * GAMMA * target_q.detach()
         q = self.critic(s_batch, a_batch)

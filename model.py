@@ -80,7 +80,7 @@ class Actor(nn.Module):
         return x
     
     def get_action(self, state):
-        state  = torch.FloatTensor(state).unsqueeze(0).to(device)
+        state  = torch.FloatTensor(state).unsqueeze(0).to(device) #(1, state_dim)
         self.eval()
         with torch.no_grad():
             action = self.forward(state)

@@ -19,12 +19,12 @@ from mlagents_envs.environment import UnityEnvironment
 
 
 #Hyperparameters
-MAX_EPISODES=1000   #number of episodes of the training
-MAX_STEPS=200   #max steps to finish an episode. An episode breaks early if some break conditions are met (like too much
+MAX_EPISODES=100   #number of episodes of the training
+MAX_STEPS=2500   #max steps to finish an episode. An episode breaks early if some break conditions are met (like too much
                 #amplitude of the joints angles or if a failure occurs). In the case of pendulum there is no break
                 #condition, hence no environment reset,  so we just put 1 step per episode. 
 epsilon = 1
-epsilon_decay = 1./20000 #this is ok for a simple task like inverted pendulum, but maybe this would be set to zero for more
+epsilon_decay = 1./25000 #this is ok for a simple task like inverted pendulum, but maybe this would be set to zero for more
                 #complex tasks like Hopper; epsilon is a decay for the exploration and noise applied to the action is 
                 #weighted by this decay. In more complex tasks we need the exploration to not vanish so we set the decay
                 #to zero.
@@ -82,8 +82,18 @@ for episode in range(MAX_EPISODES):
         decision_steps, terminal_steps = env.get_steps(behavior_name)
         cur_obs = decision_steps.obs[0][0,:]
         next_state = cur_obs[6:11]
-        reward = 1      #need to fix
-        terminal = 0    #see if episode is finished
+        x1, z1 = cur_obs[0], cur_obs[2]
+        x2, z2 = cur_obs[3], cur_obs[5]
+
+        if (x1 > x2 - 5) and (x1 < x2 + 5) and (z1 > z2 - 5) and (z1 < z2 + 5):
+            reward = 25/abs((x1-x2)*(z1-z2))
+        else:
+            reward = -0.1      #need to fix
+
+        if (x1 == -0.1) and (z1 == -1.85) and timestep != 0:
+            terminal = 1
+        else:
+            terminal = 0    #see if episode is finished
 
         #Store Transition in memory R
         agents.store_to_memory(state, action_angle, reward, terminal, next_state)
